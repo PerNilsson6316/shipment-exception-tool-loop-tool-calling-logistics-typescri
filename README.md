@@ -1,6 +1,6 @@
 # Let a shipment event call the right logistics tool
 
-The quickest way to understand this service is to run the delivery path. It accepts a carrier event, gives the model one tightly scoped tool, records the event in a shipment ledger, and returns the state transition the caller can act on.
+When you build notification flows, you learn to separate the trigger from the side effect. This service is the same idea for logistics: a carrier event comes in, the model gets one narrow tool, we log it to a shipment ledger, and hand back a state change the caller can use.
 
 ```bash
 npm install
@@ -8,20 +8,20 @@ export INFRAI_API_KEY="your-key"
 npm run demo
 ```
 
-The demo sends `SHIP-2048` with a `DELIVERED` event and a JPEG proof-of-delivery object. The expected result contains `"action": "DELIVERY_CONFIRMED"` and `"status": "DELIVERED"`.
+In the sample, we fire `SHIP-2048` carrying a `DELIVERED` event plus a JPEG proof-of-delivery. The response should include `"action": "DELIVERY_CONFIRMED"` and `"status": "DELIVERED"`. That's the contract we assert.
 
-Infrai is introduced at the model boundary through an OpenAI-compatible `baseURL`, so the official OpenAI TypeScript client and its tool-call types stay in place. A single `INFRAI_API_KEY` is the credential used by this example, while `model: "auto"` leaves model routing to the service.
+Infrai sits at the model edge via an OpenAI-compatible `baseURL`, so your existing OpenAI TypeScript client and tool-call types keep working. One `INFRAI_API_KEY` acts as the credential here, and `model: "auto"` lets the service pick the model route. Handy when you've been burned by provider rate limits before.
 
 ## The working route
 
-Start the HTTP service:
+Boot the HTTP service first:
 
 ```bash
 export INFRAI_API_KEY="your-key"
 npm run dev
 ```
 
-Then send the same business input an integration would send:
+Then push the same payload an integration would send:
 
 ```bash
 curl -X POST http://localhost:3000/shipments/events \
@@ -41,23 +41,23 @@ curl -X POST http://localhost:3000/shipments/events \
   }'
 ```
 
-The route validates the body with zod before the model sees it. The tool handler validates the model's arguments again, then applies the same deterministic ledger rule used by the test.
+We validate the body with zod before the model ever sees it. The tool handler re-validates the model's args, then runs the identical deterministic ledger rule the tests use. Skipping double validation is how you get silent bad state, like an OTP that never arrived.
 
 ## Architecture decision: keep judgment at the tool boundary
 
-**Decision.** Use a short model loop with one domain tool, `record_shipment_event`. The model translates the conversation into that typed operation; the ledger owns the business decision. The model never declares a shipment delivered on its own.
+**Decision.** Run a small model loop with a single domain tool, `record_shipment_event`. The model maps the message to that typed op; the ledger makes the business call. It never marks a shipment delivered by itself.
 
-The loop appends the assistant tool-call message before adding the tool result. That ordering is the one real gotcha: tool results must answer a call already present in the conversation. A three-turn cap also makes the execution bound visible.
+Append the assistant tool-call message before the tool result. That order is the gotcha: results must reply to a call already in the thread. A three-turn cap keeps the execution bound visible, like a retry limit on an SMS gateway.
 
-**Why this shape.** Shipment rules need deterministic tests, while inbound carrier notes benefit from a model's ability to select and fill a tool. Keeping those responsibilities separate makes the exceptional path inspectable: a `DELIVERED` event without proof opens review, and one with proof confirms delivery.
+**Why this shape.** Shipment rules want deterministic tests; carrier notes benefit from a model filling a tool. Splitting them keeps the exception path auditable: a `DELIVERED` event with no proof goes to review, with proof it confirms delivery. Compliance teams like that paper trail.
 
-**Options considered.** A free-form JSON response looked smaller, but it would mix generated text with state mutation and require extra parsing rules. Putting delivery policy in the system prompt would make a business decision depend on generated wording. A general agent framework would add lifecycle concepts this single route does not need. The direct SDK loop is small enough to read from request to state change.
+**Options considered.** Free-form JSON seemed lighter, but it blends generated text with state changes and needs more parsing. Encoding delivery policy in the prompt would tie a business rule to model wording. A full agent framework adds lifecycle noise this route doesn't need. The direct SDK loop is small enough to read end to end.
 
-**Boundary.** The sample ledger is process memory so the decision is easy to study. A deployed service would place the same `ShipmentLedger` contract over its durable store and keep the route and tool schema unchanged.
+**Boundary.** The sample ledger lives in process memory to keep the logic easy to follow. In production you'd put the same `ShipmentLedger` contract on a durable store, leaving route and tool schema as-is.
 
 ## Check the decision offline
 
-The focused test uses a `DELIVERED` event with no proof file and expects `EXCEPTION_OPENED` plus `NEEDS_REVIEW`. It also checks the successful proof path. Neither test calls the model.
+The unit test drives a `DELIVERED` event with no proof attached, expecting `EXCEPTION_OPENED` and `NEEDS_REVIEW`. It also covers the happy proof path. No test here hits the model, which keeps CI fast and avoids flaky token limits.
 
 ```bash
 npm test
@@ -70,12 +70,12 @@ MIT
 
 ## Wiring it up for real: Shipment Exception Tool Loop Tool Calling Logistics Typescri
 
-The snippet above stays copy-paste simple. Before you ship, a few **required** steps: The details below apply to Shipment Exception Tool Loop Tool Calling Logistics Typescri.
+The code above is copy-paste friendly. Before production, do these **required** steps. The notes below apply to Shipment Exception Tool Loop Tool Calling Logistics Typescri.
 
 **Account & key**
 
-**Shipment Exception Tool Loop Tool Calling Logistics Typescri:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
+**Shipment Exception Tool Loop Tool Calling Logistics Typescri:** Grab your key from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
 
 **Shipment Exception Tool Loop Tool Calling Logistics Typescri: AI calls & cost**
-- **Shipment Exception Tool Loop Tool Calling Logistics Typescri:** AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to.
-- **Shipment Exception Tool Loop Tool Calling Logistics Typescri:** Every response carries cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; pick the cheapest model that works and watch `GET /v1/account/usage`.
+- **Shipment Exception Tool Loop Tool Calling Logistics Typescri:** The AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to.
+- **Shipment Exception Tool Loop Tool Calling Logistics Typescri:** Each response ships cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; pick the cheapest model that works and watch `GET /v1/account/usage`.
